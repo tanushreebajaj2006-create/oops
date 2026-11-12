@@ -1,7 +1,8 @@
 /**
- * Priority matrix domain package.
+ * Priority domain package.
  *
- * <p>Contains domain logic and matrix algorithms that compute incident priority levels (LOW,
- * MEDIUM, HIGH, CRITICAL) derived from urgency, impact scores, and affected service tiers.
+ * <p>{@link com.servicedesk.domain.priority.Priority} (P1-P4) and the shared {@link
+ * com.servicedesk.domain.priority.Level} scale used for impact, urgency and business criticality.
+ * Phase 2 adds interchangeable {@code PriorityStrategy} implementations (Strategy pattern).
  */
 package com.servicedesk.domain.priority;
