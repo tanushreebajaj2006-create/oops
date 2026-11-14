@@ -7,6 +7,9 @@ import com.servicedesk.domain.incident.state.IncidentState;
 import com.servicedesk.domain.incident.state.IncidentStates;
 import com.servicedesk.domain.priority.Level;
 import com.servicedesk.domain.priority.Priority;
+import com.servicedesk.domain.priority.PriorityAssessment;
+import com.servicedesk.domain.priority.PriorityFactors;
+import com.servicedesk.domain.priority.PriorityStrategy;
 import com.servicedesk.domain.user.Permission;
 import com.servicedesk.domain.user.Role;
 import com.servicedesk.domain.user.Technician;
@@ -117,6 +120,28 @@ public class Incident {
     requireOpen("change priority");
     this.priority = Require.notNull(newPriority, "Priority");
     this.updatedAt = at;
+  }
+
+  /**
+   * Lets a {@link PriorityStrategy} compute this incident's priority and records the result.
+   *
+   * <p>The incident does not know <i>how</i> priority is calculated - it only supplies its {@link
+   * #priorityFactors()} (<b>polymorphism</b>: any strategy can be passed in).
+   *
+   * @return the full assessment, including the rationale for the audit trail
+   */
+  public PriorityAssessment prioritize(PriorityStrategy strategy, User actor, Instant at) {
+    Require.notNull(strategy, "Priority strategy");
+    actor.requirePermission(Permission.CLASSIFY_INCIDENTS);
+    requireOpen("change priority");
+    PriorityAssessment assessment = strategy.assess(priorityFactors());
+    applyPriority(assessment.priority(), actor, at);
+    return assessment;
+  }
+
+  /** The inputs priority strategies are allowed to see. */
+  public PriorityFactors priorityFactors() {
+    return new PriorityFactors(impact, urgency, service.criticality(), affectedUsers);
   }
 
   /**
