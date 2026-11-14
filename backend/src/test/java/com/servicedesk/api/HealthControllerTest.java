@@ -6,17 +6,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.servicedesk.infrastructure.config.ClockConfig;
-import com.servicedesk.infrastructure.security.SecurityConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-@WebMvcTest(HealthController.class)
-@Import({SecurityConfig.class, ClockConfig.class})
+@SpringBootTest
+@AutoConfigureMockMvc
 class HealthControllerTest {
 
   @Autowired private MockMvc mockMvc;
@@ -36,7 +34,15 @@ class HealthControllerTest {
   }
 
   @Test
-  void unmappedEndpointsShouldBeDeniedByDefault() throws Exception {
-    mockMvc.perform(get("/api/v1/incidents")).andExpect(status().isForbidden());
+  void protectedEndpointsRequireAuthentication() throws Exception {
+    mockMvc
+        .perform(get("/api/v1/incidents"))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+  }
+
+  @Test
+  void unknownPathsOutsideTheApiAreDenied() throws Exception {
+    mockMvc.perform(get("/internal/secret")).andExpect(status().is4xxClientError());
   }
 }

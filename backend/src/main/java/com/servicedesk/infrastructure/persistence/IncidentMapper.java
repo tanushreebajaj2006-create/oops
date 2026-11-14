@@ -59,6 +59,7 @@ final class IncidentMapper {
         e.resolvedAt,
         e.updatedAt,
         e.reopenCount,
+        e.escalationLevel,
         notes,
         resolution,
         feedback,
@@ -82,6 +83,7 @@ final class IncidentMapper {
     e.resolvedAt = s.resolvedAt();
     e.updatedAt = s.updatedAt();
     e.reopenCount = s.reopenCount();
+    e.escalationLevel = s.escalationLevel();
 
     ResolutionData r = s.resolution();
     e.resolutionSummary = r == null ? null : r.summary();

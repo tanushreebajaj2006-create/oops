@@ -34,6 +34,7 @@ public record IncidentSnapshot(
     Instant resolvedAt,
     Instant updatedAt,
     int reopenCount,
+    int escalationLevel,
     List<NoteData> notes,
     ResolutionData resolution,
     Feedback feedback,

@@ -4,6 +4,7 @@ package com.servicedesk.domain.incident.event;
 public enum EventType {
   CREATED,
   CLASSIFIED,
+  DETAILS_UPDATED,
   PRIORITY_CHANGED,
   ASSIGNED,
   STATUS_CHANGED,

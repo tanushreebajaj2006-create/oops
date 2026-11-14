@@ -35,6 +35,20 @@ management:
 # Security and CORS configuration properties
 app:
   security:
+    # HS256 signing key for login tokens (min 32 bytes). ALWAYS override JWT_SECRET outside development.
     jwt-secret: ${JWT_SECRET:default_jwt_secret_key_minimum_thirty_two_bytes_long}
+    token-ttl: ${JWT_TTL:PT8H}
     cors:
       allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  # Sample incidents created on first start against an empty database
+  demo:
+    enabled: ${APP_DEMO_ENABLED:true}
+  # Background SLA check + automatic escalation
+  sla:
+    monitor:
+      enabled: ${APP_SLA_MONITOR_ENABLED:true}
+      initial-delay: PT30S
+      interval: PT60S
+  notifications:
+    from-address: noreply@servicedesk.example
+    sms-sender-id: SVCDSK

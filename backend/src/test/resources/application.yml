@@ -26,3 +26,9 @@ app:
     jwt-secret: test_secret_key_minimum_thirty_two_characters_long_for_unit_tests
     cors:
       allowed-origins: http://localhost:3000
+  # tests trigger the SLA check themselves at controlled times, and start from an empty incident table
+  sla:
+    monitor:
+      enabled: false
+  demo:
+    enabled: false

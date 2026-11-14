@@ -73,6 +73,9 @@ public class IncidentEntity {
   @Column(name = "reopen_count", nullable = false)
   int reopenCount;
 
+  @Column(name = "escalation_level", nullable = false)
+  int escalationLevel;
+
   @Column(name = "resolution_summary")
   String resolutionSummary;
 

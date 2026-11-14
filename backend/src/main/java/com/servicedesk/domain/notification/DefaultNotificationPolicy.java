@@ -13,6 +13,7 @@ import com.servicedesk.domain.incident.event.IncidentAssigned;
 import com.servicedesk.domain.incident.event.IncidentClassified;
 import com.servicedesk.domain.incident.event.IncidentClosed;
 import com.servicedesk.domain.incident.event.IncidentCreated;
+import com.servicedesk.domain.incident.event.IncidentDetailsUpdated;
 import com.servicedesk.domain.incident.event.IncidentEscalated;
 import com.servicedesk.domain.incident.event.IncidentEvent;
 import com.servicedesk.domain.incident.event.IncidentResolved;
@@ -56,6 +57,7 @@ public class DefaultNotificationPolicy implements NotificationPolicy {
     return switch (event) {
       case IncidentCreated e -> List.of(to(REPORTER, IN_APP, EMAIL).includingActor());
       case IncidentClassified e -> List.of();
+      case IncidentDetailsUpdated e -> List.of(to(REPORTER, IN_APP), to(ASSIGNEE, IN_APP));
       case PriorityChanged e ->
           e.isChange() ? List.of(to(REPORTER, IN_APP), to(ASSIGNEE, IN_APP, EMAIL)) : List.of();
       case IncidentAssigned e -> assigned(e);

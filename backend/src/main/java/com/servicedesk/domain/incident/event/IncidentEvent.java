@@ -26,6 +26,7 @@ import java.util.Optional;
 public abstract sealed class IncidentEvent
     permits IncidentCreated,
         IncidentClassified,
+        IncidentDetailsUpdated,
         PriorityChanged,
         IncidentAssigned,
         IncidentStatusChanged,

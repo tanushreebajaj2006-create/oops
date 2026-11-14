@@ -9,6 +9,8 @@ import com.servicedesk.domain.incident.event.IncidentAssigned;
 import com.servicedesk.domain.incident.event.IncidentClassified;
 import com.servicedesk.domain.incident.event.IncidentClosed;
 import com.servicedesk.domain.incident.event.IncidentCreated;
+import com.servicedesk.domain.incident.event.IncidentDetailsUpdated;
+import com.servicedesk.domain.incident.event.IncidentEscalated;
 import com.servicedesk.domain.incident.event.IncidentEvent;
 import com.servicedesk.domain.incident.event.IncidentResolved;
 import com.servicedesk.domain.incident.event.IncidentStatusChanged;
@@ -75,6 +77,7 @@ public class Incident {
   private Instant resolvedAt;
   private Instant updatedAt;
   private int reopenCount;
+  private int escalationLevel;
 
   // ---- owned parts (composition) ---------------------------------------------------------
   private final List<Note> notes = new ArrayList<>();
@@ -348,6 +351,106 @@ public class Incident {
   }
 
   /** Reporter rates the service once the incident is resolved. Only one rating is allowed. */
+  /**
+   * Corrects the reported details while the incident is open. Allowed for the reporter and for
+   * anyone who can assign incidents (team leads, administrators). Only fields that actually change
+   * are recorded; if nothing changes, nothing is recorded.
+   *
+   * @return true if impact, urgency or affected users changed - the caller should then let the
+   *     priority strategy recalculate the priority
+   */
+  public boolean updateDetails(
+      User actor,
+      String newTitle,
+      String newDescription,
+      Level newImpact,
+      Level newUrgency,
+      int newAffectedUsers,
+      Instant at) {
+    if (!isReporter(actor) && !actor.can(Permission.ASSIGN_INCIDENTS)) {
+      throw new UnauthorizedOperationException(actor.id() + " cannot edit " + id);
+    }
+    requireOpen("edit details");
+    String t = Require.notBlank(newTitle, "Title");
+    Require.that(
+        t.length() >= IncidentFactory.TITLE_MIN && t.length() <= IncidentFactory.TITLE_MAX,
+        "Title must be "
+            + IncidentFactory.TITLE_MIN
+            + "-"
+            + IncidentFactory.TITLE_MAX
+            + " characters");
+    String d = Require.notBlank(newDescription, "Description");
+    Require.that(
+        d.length() >= IncidentFactory.DESCRIPTION_MIN
+            && d.length() <= IncidentFactory.DESCRIPTION_MAX,
+        "Description must be "
+            + IncidentFactory.DESCRIPTION_MIN
+            + "-"
+            + IncidentFactory.DESCRIPTION_MAX
+            + " characters");
+    Require.notNull(newImpact, "Impact");
+    Require.notNull(newUrgency, "Urgency");
+    Require.inRange(newAffectedUsers, 1, IncidentFactory.MAX_AFFECTED_USERS, "Affected users");
+
+    List<String> changes = new ArrayList<>();
+    if (!t.equals(title)) {
+      changes.add("title");
+    }
+    if (!d.equals(description)) {
+      changes.add("description");
+    }
+    boolean factorsChanged = false;
+    if (newImpact != impact) {
+      changes.add("impact " + impact + " -> " + newImpact);
+      factorsChanged = true;
+    }
+    if (newUrgency != urgency) {
+      changes.add("urgency " + urgency + " -> " + newUrgency);
+      factorsChanged = true;
+    }
+    if (newAffectedUsers != affectedUsers) {
+      changes.add("affected users " + affectedUsers + " -> " + newAffectedUsers);
+      factorsChanged = true;
+    }
+    if (changes.isEmpty()) {
+      return false;
+    }
+    this.title = t;
+    this.description = d;
+    this.impact = newImpact;
+    this.urgency = newUrgency;
+    this.affectedUsers = newAffectedUsers;
+    this.updatedAt = Require.notNull(at, "Action time");
+    record(new IncidentDetailsUpdated(header(actor, at, status()), changes));
+    return factorsChanged;
+  }
+
+  /**
+   * Records that the incident has been escalated to {@code target} (Technician -> Team Lead ->
+   * Administrator). Escalation only ever moves up the chain; re-assigning the work, if wanted, is a
+   * separate {@link #assignTo} call.
+   */
+  public void escalate(int level, User target, String reason, User actor, Instant at) {
+    actor.requirePermission(Permission.ASSIGN_INCIDENTS);
+    requireOpen("escalate");
+    Require.notNull(target, "Escalation target");
+    if (!target.can(Permission.RECEIVE_ESCALATIONS)) {
+      throw new InvalidIncidentException(target.id() + " does not receive escalations");
+    }
+    if (level <= escalationLevel) {
+      throw new InvalidIncidentException(id + " is already at escalation level " + escalationLevel);
+    }
+    this.escalationLevel = level;
+    this.updatedAt = Require.notNull(at, "Action time");
+    record(
+        new IncidentEscalated(
+            header(actor, at, status()),
+            level,
+            target.id(),
+            target.role(),
+            Require.notBlank(reason, "Escalation reason")));
+  }
+
   public void giveFeedback(User actor, int rating, String comment, Instant at) {
     requireReporter(actor);
     IncidentStatus s = status();
@@ -409,6 +512,7 @@ public class Incident {
         resolvedAt,
         updatedAt,
         reopenCount,
+        escalationLevel,
         notes.stream()
             .map(
                 n ->
@@ -463,6 +567,7 @@ public class Incident {
     i.resolvedAt = s.resolvedAt();
     i.updatedAt = s.updatedAt() == null ? s.createdAt() : s.updatedAt();
     i.reopenCount = s.reopenCount();
+    i.escalationLevel = s.escalationLevel();
     for (IncidentSnapshot.NoteData n : s.notes()) {
       i.notes.add(new Note(refs.user(n.authorId()), n.type(), n.text(), n.createdAt()));
     }
@@ -574,6 +679,11 @@ public class Incident {
 
   public int reopenCount() {
     return reopenCount;
+  }
+
+  /** 0 = not escalated, 1 = team lead, 2 = administrator. */
+  public int escalationLevel() {
+    return escalationLevel;
   }
 
   /** Read-only view; the list can only grow through the business methods above. */
