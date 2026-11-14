@@ -386,6 +386,100 @@ public class Incident {
   }
 
   // =========================================================================================
+  // Persistence support (Memento)
+  // =========================================================================================
+
+  /** Exports the complete state as plain data, for storage. */
+  public IncidentSnapshot snapshot() {
+    return new IncidentSnapshot(
+        id,
+        reporter.id(),
+        title,
+        description,
+        service.code(),
+        impact,
+        urgency,
+        affectedUsers,
+        category == null ? null : category.code(),
+        priority,
+        status(),
+        assignee == null ? null : assignee.id(),
+        createdAt,
+        acknowledgedAt,
+        resolvedAt,
+        updatedAt,
+        reopenCount,
+        notes.stream()
+            .map(
+                n ->
+                    new IncidentSnapshot.NoteData(
+                        n.author().id(), n.type(), n.text(), n.createdAt()))
+            .toList(),
+        resolution == null
+            ? null
+            : new IncidentSnapshot.ResolutionData(
+                resolution.summary(),
+                resolution.rootCause(),
+                resolution.resolvedBy().id(),
+                resolution.resolvedAt()),
+        feedback,
+        closure == null
+            ? null
+            : new IncidentSnapshot.ClosureData(
+                closure.closedBy().id(), closure.closedAt(), closure.note()));
+  }
+
+  /**
+   * Rebuilds a stored incident. Only for repositories: it bypasses the lifecycle checks because the
+   * stored state was already validated when it was created. No events are recorded - loading an
+   * incident is not something that happened to it.
+   *
+   * @throws InvalidIncidentException if the assignee is not a technician
+   */
+  public static Incident restore(IncidentSnapshot s, IncidentReferences refs) {
+    Require.notNull(s, "Snapshot");
+    Require.notNull(refs, "References");
+    Incident i =
+        new Incident(
+            s.id(),
+            refs.user(s.reporterId()),
+            s.title(),
+            s.description(),
+            refs.service(s.serviceCode()),
+            s.impact(),
+            s.urgency(),
+            s.affectedUsers(),
+            s.createdAt());
+    i.category = s.categoryCode() == null ? null : refs.category(s.categoryCode());
+    i.priority = s.priority();
+    i.state = IncidentStates.of(s.status());
+    if (s.assigneeId() != null) {
+      if (!(refs.user(s.assigneeId()) instanceof Technician t)) {
+        throw new InvalidIncidentException(s.id() + " is assigned to a non-technician");
+      }
+      i.assignee = t;
+    }
+    i.acknowledgedAt = s.acknowledgedAt();
+    i.resolvedAt = s.resolvedAt();
+    i.updatedAt = s.updatedAt() == null ? s.createdAt() : s.updatedAt();
+    i.reopenCount = s.reopenCount();
+    for (IncidentSnapshot.NoteData n : s.notes()) {
+      i.notes.add(new Note(refs.user(n.authorId()), n.type(), n.text(), n.createdAt()));
+    }
+    IncidentSnapshot.ResolutionData r = s.resolution();
+    if (r != null) {
+      i.resolution =
+          new Resolution(r.summary(), r.rootCause(), refs.user(r.resolvedBy()), r.resolvedAt());
+    }
+    i.feedback = s.feedback();
+    IncidentSnapshot.ClosureData c = s.closure();
+    if (c != null) {
+      i.closure = new Closure(refs.user(c.closedBy()), c.closedAt(), c.note());
+    }
+    return i;
+  }
+
+  // =========================================================================================
   // Queries
   // =========================================================================================
 
