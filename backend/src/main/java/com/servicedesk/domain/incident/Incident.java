@@ -3,6 +3,17 @@ package com.servicedesk.domain.incident;
 import com.servicedesk.domain.common.Require;
 import com.servicedesk.domain.exception.InvalidIncidentException;
 import com.servicedesk.domain.exception.UnauthorizedOperationException;
+import com.servicedesk.domain.incident.event.EventHeader;
+import com.servicedesk.domain.incident.event.FeedbackGiven;
+import com.servicedesk.domain.incident.event.IncidentAssigned;
+import com.servicedesk.domain.incident.event.IncidentClassified;
+import com.servicedesk.domain.incident.event.IncidentClosed;
+import com.servicedesk.domain.incident.event.IncidentCreated;
+import com.servicedesk.domain.incident.event.IncidentEvent;
+import com.servicedesk.domain.incident.event.IncidentResolved;
+import com.servicedesk.domain.incident.event.IncidentStatusChanged;
+import com.servicedesk.domain.incident.event.NoteAdded;
+import com.servicedesk.domain.incident.event.PriorityChanged;
 import com.servicedesk.domain.incident.state.IncidentState;
 import com.servicedesk.domain.incident.state.IncidentStates;
 import com.servicedesk.domain.priority.Level;
@@ -71,6 +82,9 @@ public class Incident {
   private Feedback feedback;
   private Closure closure;
 
+  // ---- domain events not yet published (Observer pattern subject side) -------------------
+  private final List<IncidentEvent> pendingEvents = new ArrayList<>();
+
   /** Package-private: use {@link IncidentFactory} to create incidents. */
   Incident(
       IncidentId id,
@@ -99,6 +113,11 @@ public class Incident {
   // Lifecycle actions
   // =========================================================================================
 
+  /** Records the creation event. Called once by {@link IncidentFactory}. */
+  void recordCreated() {
+    record(new IncidentCreated(header(reporter, createdAt, null), service.code()));
+  }
+
   /** Sets (or changes) the category. NEW -> CLASSIFIED, or stays CLASSIFIED. */
   public void classify(Category newCategory, User actor, Instant at) {
     actor.requirePermission(Permission.CLASSIFY_INCIDENTS);
@@ -107,19 +126,29 @@ public class Incident {
     if (!newCategory.active()) {
       throw new InvalidIncidentException("Category " + newCategory.code() + " is retired");
     }
+    IncidentStatus before = status();
+    String previousCode = category == null ? null : category.code();
     this.category = newCategory;
     moveTo(next, at);
+    record(new IncidentClassified(header(actor, at, before), newCategory.code(), previousCode));
   }
 
   /**
-   * Records the priority calculated by a priority strategy. Allowed while the incident is open
-   * (priority can change, e.g. when more users are affected).
+   * Sets the priority directly (manual override by a team lead or administrator). Allowed while the
+   * incident is open (priority can change, e.g. when more users are affected).
    */
   public void applyPriority(Priority newPriority, User actor, Instant at) {
+    changePriority(newPriority, actor, at, null);
+  }
+
+  private void changePriority(Priority newPriority, User actor, Instant at, String rationale) {
     actor.requirePermission(Permission.CLASSIFY_INCIDENTS);
     requireOpen("change priority");
-    this.priority = Require.notNull(newPriority, "Priority");
-    this.updatedAt = at;
+    Require.notNull(newPriority, "Priority");
+    Priority previous = this.priority;
+    this.priority = newPriority;
+    this.updatedAt = Require.notNull(at, "Action time");
+    record(new PriorityChanged(header(actor, at, status()), previous, newPriority, rationale));
   }
 
   /**
@@ -135,7 +164,8 @@ public class Incident {
     actor.requirePermission(Permission.CLASSIFY_INCIDENTS);
     requireOpen("change priority");
     PriorityAssessment assessment = strategy.assess(priorityFactors());
-    applyPriority(assessment.priority(), actor, at);
+    changePriority(
+        assessment.priority(), actor, at, assessment.strategy() + ": " + assessment.rationale());
     return assessment;
   }
 
@@ -151,6 +181,14 @@ public class Incident {
    * technician released. Requires category and priority to be known.
    */
   public void assignTo(Technician technician, User actor, Instant at) {
+    assignTo(technician, actor, at, null);
+  }
+
+  /**
+   * Same as {@link #assignTo(Technician, User, Instant)} but records why this technician was chosen
+   * (e.g. the assignment strategy's explanation) in the audit trail.
+   */
+  public void assignTo(Technician technician, User actor, Instant at, String reason) {
     actor.requirePermission(Permission.ASSIGN_INCIDENTS);
     IncidentState next = state.assign();
     Require.notNull(technician, "Technician");
@@ -162,44 +200,61 @@ public class Incident {
       throw new InvalidIncidentException(id + " is already assigned to " + technician.id());
     }
     technician.takeOn(); // may throw TechnicianUnavailable / WorkloadExceeded
-    if (assignee != null) {
-      assignee.release();
+    IncidentStatus before = status();
+    Technician previous = assignee;
+    if (previous != null) {
+      previous.release();
     }
     this.assignee = technician;
     moveTo(next, at);
+    record(
+        new IncidentAssigned(
+            header(actor, at, before),
+            technician.id(),
+            previous == null ? null : previous.id(),
+            reason));
   }
 
   /** The assigned technician accepts the incident. The first time counts as the SLA response. */
   public void acknowledge(User actor, Instant at) {
     requireAssignee(actor);
     IncidentState next = state.acknowledge();
+    IncidentStatus before = status();
     if (acknowledgedAt == null) {
       acknowledgedAt = at;
     }
     moveTo(next, at);
+    recordStatusChange(IncidentAction.ACKNOWLEDGE, actor, at, before, null);
   }
 
   public void startWork(User actor, Instant at) {
     requireAssignee(actor);
-    moveTo(state.startWork(), at);
+    IncidentState next = state.startWork();
+    IncidentStatus before = status();
+    moveTo(next, at);
+    recordStatusChange(IncidentAction.START_WORK, actor, at, before, null);
   }
 
   /** Technician asks the reporter a question; the incident waits for the answer. */
   public void requestInfo(User actor, String question, Instant at) {
     requireAssignee(actor);
     IncidentState next = state.requestInfo();
+    IncidentStatus before = status();
     Note note = new Note(actor, NoteType.INFO_REQUEST, question, at);
     notes.add(note);
     moveTo(next, at);
+    recordStatusChange(IncidentAction.REQUEST_INFO, actor, at, before, note.text());
   }
 
   /** Reporter answers the technician's question; work resumes. */
   public void provideInfo(User actor, String answer, Instant at) {
     requireReporter(actor);
     IncidentState next = state.provideInfo();
+    IncidentStatus before = status();
     Note note = new Note(actor, NoteType.INFO_RESPONSE, answer, at);
     notes.add(note);
     moveTo(next, at);
+    recordStatusChange(IncidentAction.PROVIDE_INFO, actor, at, before, null);
   }
 
   /**
@@ -223,37 +278,45 @@ public class Incident {
     }
     notes.add(new Note(actor, type, text, at));
     this.updatedAt = at;
+    record(new NoteAdded(header(actor, at, status()), type));
   }
 
   /** Technician records the fix. Their workload drops by one. */
   public void resolve(User actor, String summary, String rootCause, Instant at) {
     requireAssignee(actor);
     IncidentState next = state.resolve();
+    IncidentStatus before = status();
     Resolution newResolution = new Resolution(summary, rootCause, actor, at);
     this.resolution = newResolution;
     this.resolvedAt = at;
     assignee.release();
     moveTo(next, at);
+    record(new IncidentResolved(header(actor, at, before), newResolution.summary()));
   }
 
   /** Reporter (or an administrator) confirms the fix works. */
   public void verify(User actor, Instant at) {
     requireReporterOrAdmin(actor);
-    moveTo(state.verify(), at);
+    IncidentState next = state.verify();
+    IncidentStatus before = status();
+    moveTo(next, at);
+    recordStatusChange(IncidentAction.VERIFY, actor, at, before, null);
   }
 
   /** Reporter says the problem is not fixed. Work returns to the same technician. */
   public void reopen(User actor, String reason, Instant at) {
     requireReporterOrAdmin(actor);
     IncidentState next = state.reopen();
-    Note note =
-        new Note(actor, NoteType.COMMENT, "Reopened: " + Require.notBlank(reason, "Reason"), at);
+    IncidentStatus before = status();
+    String why = Require.notBlank(reason, "Reason");
+    Note note = new Note(actor, NoteType.COMMENT, "Reopened: " + why, at);
     notes.add(note);
     this.resolution = null;
     this.resolvedAt = null;
     this.reopenCount++;
     assignee.resume();
     moveTo(next, at);
+    recordStatusChange(IncidentAction.REOPEN, actor, at, before, why);
   }
 
   /** Final step. Allowed for the reporter, an administrator, or the system (auto-close). */
@@ -262,8 +325,10 @@ public class Incident {
       throw new UnauthorizedOperationException(actor.id() + " cannot close " + id);
     }
     IncidentState next = state.close();
+    IncidentStatus before = status();
     this.closure = new Closure(actor, at, closingNote);
     moveTo(next, at);
+    record(new IncidentClosed(header(actor, at, before), closingNote));
   }
 
   /** Withdraws an incident before work starts (e.g. it was a duplicate or reported by mistake). */
@@ -272,12 +337,14 @@ public class Incident {
       throw new UnauthorizedOperationException(actor.id() + " cannot cancel " + id);
     }
     IncidentState next = state.cancel();
+    IncidentStatus before = status();
     String why = Require.notBlank(reason, "Cancellation reason");
     if (assignee != null) {
       assignee.release();
     }
     this.closure = new Closure(actor, at, why);
     moveTo(next, at);
+    recordStatusChange(IncidentAction.CANCEL, actor, at, before, why);
   }
 
   /** Reporter rates the service once the incident is resolved. Only one rating is allowed. */
@@ -294,6 +361,28 @@ public class Incident {
     }
     this.feedback = new Feedback(rating, comment, at);
     this.updatedAt = at;
+    record(new FeedbackGiven(header(actor, at, s), rating));
+  }
+
+  // =========================================================================================
+  // Domain events
+  // =========================================================================================
+
+  /**
+   * Hands over the events recorded since the last call and forgets them. The application layer
+   * calls this after saving the incident and passes the events to the {@link
+   * com.servicedesk.domain.incident.event.IncidentEventPublisher}, so listeners only ever hear
+   * about changes that were actually stored.
+   */
+  public List<IncidentEvent> pullEvents() {
+    List<IncidentEvent> out = List.copyOf(pendingEvents);
+    pendingEvents.clear();
+    return out;
+  }
+
+  /** Read-only view of the events not yet pulled. */
+  public List<IncidentEvent> pendingEvents() {
+    return Collections.unmodifiableList(pendingEvents);
   }
 
   // =========================================================================================
@@ -417,6 +506,30 @@ public class Incident {
   private void moveTo(IncidentState next, Instant at) {
     this.state = next;
     this.updatedAt = Require.notNull(at, "Action time");
+  }
+
+  private void record(IncidentEvent event) {
+    pendingEvents.add(event);
+  }
+
+  private void recordStatusChange(
+      IncidentAction action, User actor, Instant at, IncidentStatus before, String detail) {
+    record(new IncidentStatusChanged(header(actor, at, before), action, detail));
+  }
+
+  /** Snapshot of the incident <i>after</i> the change, for the event header. */
+  private EventHeader header(User actor, Instant at, IncidentStatus before) {
+    return new EventHeader(
+        id,
+        at,
+        actor.id(),
+        actor.role(),
+        reporter.id(),
+        assignee == null ? null : assignee.id(),
+        title,
+        priority,
+        before,
+        status());
   }
 
   private void requireOpen(String what) {

@@ -3,6 +3,7 @@ package com.servicedesk.domain.user;
 import com.servicedesk.domain.common.Require;
 import com.servicedesk.domain.exception.UnauthorizedOperationException;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -17,11 +18,13 @@ import java.util.regex.Pattern;
 public abstract class User {
 
   private static final Pattern EMAIL = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
+  private static final Pattern PHONE = Pattern.compile("^\\+?\\d{8,15}$");
 
   private final UserId id;
   private String fullName;
   private String email;
   private String passwordHash;
+  private String phone; // optional, needed only for SMS notifications
   private boolean active;
 
   protected User(UserId id, String fullName, String email, String passwordHash) {
@@ -62,6 +65,25 @@ public abstract class User {
     String value = Require.notBlank(newEmail, "Email").toLowerCase();
     Require.that(EMAIL.matcher(value).matches(), "Email is not valid: " + newEmail);
     this.email = value;
+  }
+
+  /**
+   * Sets or clears ({@code null}/blank) the mobile number used for SMS alerts. Stored in
+   * international format: optional {@code +} followed by 8-15 digits; spaces and dashes are
+   * removed.
+   */
+  public final void changePhone(String newPhone) {
+    if (newPhone == null || newPhone.isBlank()) {
+      this.phone = null;
+      return;
+    }
+    String value = newPhone.replaceAll("[\\s-]", "");
+    Require.that(PHONE.matcher(value).matches(), "Phone number is not valid: " + newPhone);
+    this.phone = value;
+  }
+
+  public Optional<String> phone() {
+    return Optional.ofNullable(phone);
   }
 
   /** Replaces the stored hash. Hashing itself (BCrypt) is an infrastructure concern. */

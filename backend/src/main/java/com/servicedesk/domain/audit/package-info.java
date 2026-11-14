@@ -1,7 +1,10 @@
 /**
- * Audit log domain package.
+ * Audit trail domain package.
  *
- * <p>Contains immutable timeline record models, event log value objects, and audit trail tracking
- * domain entities capturing actor actions, timestamps, and state transitions.
+ * <p>{@link com.servicedesk.domain.audit.AuditTrailListener} observes every incident event and
+ * appends an {@link com.servicedesk.domain.audit.AuditEntry} (timestamp, user, action, incident,
+ * previous state, new state, description) to the append-only {@link
+ * com.servicedesk.domain.audit.AuditLog}, which can be searched with an {@link
+ * com.servicedesk.domain.audit.AuditQuery}.
  */
 package com.servicedesk.domain.audit;

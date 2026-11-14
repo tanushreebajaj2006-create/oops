@@ -59,7 +59,8 @@ public class TechnicianAssigner {
     List<AssignmentCandidate> ranked = strategy.rank(incident, eligible(incident, team));
     for (AssignmentCandidate candidate : ranked) {
       try {
-        incident.assignTo(candidate.technician(), actor, at);
+        incident.assignTo(
+            candidate.technician(), actor, at, strategy.name() + ": " + candidate.reason());
       } catch (TechnicianUnavailableException | WorkloadExceededException e) {
         continue;
       }

@@ -48,15 +48,18 @@ public class IncidentFactory {
     Require.notNull(request.urgency(), "Urgency");
     Require.inRange(request.affectedUsers(), 1, MAX_AFFECTED_USERS, "Affected users");
 
-    return new Incident(
-        idGenerator.nextId(),
-        reporter,
-        title,
-        description,
-        service,
-        request.impact(),
-        request.urgency(),
-        request.affectedUsers(),
-        clock.instant());
+    Incident incident =
+        new Incident(
+            idGenerator.nextId(),
+            reporter,
+            title,
+            description,
+            service,
+            request.impact(),
+            request.urgency(),
+            request.affectedUsers(),
+            clock.instant());
+    incident.recordCreated();
+    return incident;
   }
 }
