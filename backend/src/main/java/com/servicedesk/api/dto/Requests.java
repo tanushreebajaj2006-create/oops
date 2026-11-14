@@ -109,4 +109,14 @@ public final class Requests {
       @NotEmpty Map<Priority, @Valid SlaTargetMinutes> targets) {}
 
   public record ChangeStrategies(String assignment, String priority) {}
+
+  /** Text the user has typed so far, for live category suggestions. */
+  public record SuggestCategory(
+      @NotBlank @Size(max = 120) String title, @Size(max = 4000) String description) {}
+
+  /** A draft report, checked for duplicates before it is submitted. */
+  public record DuplicateCheck(
+      @NotBlank @Size(max = 120) String title,
+      @Size(max = 4000) String description,
+      @NotBlank String serviceCode) {}
 }

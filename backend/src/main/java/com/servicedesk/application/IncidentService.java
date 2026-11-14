@@ -19,6 +19,8 @@ import com.servicedesk.domain.incident.ItServiceRepository;
 import com.servicedesk.domain.incident.NewIncident;
 import com.servicedesk.domain.incident.NoteType;
 import com.servicedesk.domain.incident.event.IncidentEventPublisher;
+import com.servicedesk.domain.intelligence.CategoryClassifier;
+import com.servicedesk.domain.intelligence.CategorySuggestion;
 import com.servicedesk.domain.priority.Level;
 import com.servicedesk.domain.priority.Priority;
 import com.servicedesk.domain.priority.PriorityStrategy;
@@ -71,6 +73,7 @@ public class IncidentService {
   private final IncidentEventPublisher publisher;
   private final AuditLog auditLog;
   private final SlaService sla;
+  private final IntelligenceService intelligence;
   private final Clock clock;
 
   public IncidentService(
@@ -84,6 +87,7 @@ public class IncidentService {
       IncidentEventPublisher publisher,
       AuditLog auditLog,
       SlaService sla,
+      IntelligenceService intelligence,
       Clock clock) {
     this.incidents = incidents;
     this.users = users;
@@ -95,6 +99,7 @@ public class IncidentService {
     this.publisher = publisher;
     this.auditLog = auditLog;
     this.sla = sla;
+    this.intelligence = intelligence;
     this.clock = clock;
   }
 
@@ -132,8 +137,31 @@ public class IncidentService {
       // the reporter's choice is applied by the system, which then prioritises and assigns
       incident.classify(categories.get(c.categoryCode()), SYSTEM, clock.instant());
       prioritiseAndAssign(incident);
+    } else {
+      autoCategorise(incident);
     }
     return persist(incident);
+  }
+
+  /**
+   * Intelligent feature: no category given, so ask the classifier. Only a clear answer is applied
+   * automatically (recorded with its confidence and evidence in the audit trail); otherwise the
+   * incident stays NEW for a person to triage.
+   */
+  private void autoCategorise(Incident incident) {
+    List<CategorySuggestion> suggestions =
+        intelligence.suggestCategories(incident.title(), incident.description());
+    if (!CategoryClassifier.isConfident(suggestions)) {
+      return;
+    }
+    CategorySuggestion top = suggestions.get(0);
+    incident.classify(
+        categories.get(top.categoryCode()),
+        SYSTEM,
+        clock.instant(),
+        "auto-categorised: %d%% confidence; matched %s"
+            .formatted(Math.round(top.confidence() * 100), String.join(", ", top.matchedTerms())));
+    prioritiseAndAssign(incident);
   }
 
   @Transactional(readOnly = true)

@@ -1,5 +1,6 @@
 package com.servicedesk.infrastructure.config;
 
+import com.servicedesk.application.IncidentHistoryProvider;
 import com.servicedesk.application.port.SettingsStore;
 import com.servicedesk.domain.assignment.AssignmentStrategy;
 import com.servicedesk.domain.assignment.TechnicianAssigner;
@@ -10,6 +11,12 @@ import com.servicedesk.domain.common.StrategyRegistry;
 import com.servicedesk.domain.incident.IncidentFactory;
 import com.servicedesk.domain.incident.IncidentRepository;
 import com.servicedesk.domain.incident.event.IncidentEventPublisher;
+import com.servicedesk.domain.intelligence.CosineTextSimilarity;
+import com.servicedesk.domain.intelligence.DuplicateDetector;
+import com.servicedesk.domain.intelligence.IncidentCorrelator;
+import com.servicedesk.domain.intelligence.ResolutionSuggester;
+import com.servicedesk.domain.intelligence.SlaRiskPredictor;
+import com.servicedesk.domain.intelligence.TextSimilarity;
 import com.servicedesk.domain.notification.DefaultNotificationPolicy;
 import com.servicedesk.domain.notification.EmailChannel;
 import com.servicedesk.domain.notification.InAppChannel;
@@ -49,9 +56,37 @@ public class DomainConfig {
   }
 
   @Bean
-  public StrategyRegistry<AssignmentStrategy> assignmentStrategies(SettingsStore settings) {
+  public StrategyRegistry<AssignmentStrategy> assignmentStrategies(
+      SettingsStore settings, IncidentHistoryProvider history) {
     return restore(
-        TechnicianAssigner.defaultStrategies(), settings, SettingsStore.ASSIGNMENT_STRATEGY);
+        TechnicianAssigner.defaultStrategies(history), settings, SettingsStore.ASSIGNMENT_STRATEGY);
+  }
+
+  // ---- intelligent features (pure domain algorithms, swappable through interfaces) ------
+
+  @Bean
+  public TextSimilarity textSimilarity() {
+    return new CosineTextSimilarity();
+  }
+
+  @Bean
+  public DuplicateDetector duplicateDetector(TextSimilarity similarity) {
+    return new DuplicateDetector(similarity);
+  }
+
+  @Bean
+  public ResolutionSuggester resolutionSuggester(TextSimilarity similarity) {
+    return new ResolutionSuggester(similarity);
+  }
+
+  @Bean
+  public IncidentCorrelator incidentCorrelator() {
+    return new IncidentCorrelator();
+  }
+
+  @Bean
+  public SlaRiskPredictor slaRiskPredictor() {
+    return new SlaRiskPredictor();
   }
 
   @Bean
@@ -102,10 +137,11 @@ public class DomainConfig {
   /** Observer pattern: every incident event goes to the audit trail and the notifier. */
   @Bean
   public IncidentEventPublisher incidentEventPublisher(
-      AuditLog auditLog, NotificationDispatcher dispatcher) {
+      AuditLog auditLog, NotificationDispatcher dispatcher, IncidentHistoryProvider history) {
     return new IncidentEventPublisher()
         .subscribe(new AuditTrailListener(auditLog))
-        .subscribe(dispatcher);
+        .subscribe(dispatcher)
+        .subscribe(history);
   }
 
   /** Re-activates the strategy an administrator chose before the last restart. */

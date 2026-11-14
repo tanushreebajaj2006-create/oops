@@ -187,4 +187,53 @@ public final class Views {
       List<IncidentSummary> incidents) {}
 
   public record Count(long count) {}
+
+  // ---- intelligent features ------------------------------------------------------------
+
+  public record CategorySuggestionView(
+      String code,
+      String name,
+      int confidencePercent,
+      List<String> matchedTerms,
+      boolean confident) {}
+
+  /** A possibly related incident. Deliberately omits who reported it. */
+  public record RelatedIncidentView(
+      String id,
+      String title,
+      IncidentStatus status,
+      Priority priority,
+      String serviceCode,
+      Instant createdAt,
+      int scorePercent,
+      String verdict,
+      List<String> reasons) {}
+
+  public record ResolutionSuggestionView(
+      String sourceIncidentId,
+      String sourceTitle,
+      String summary,
+      String rootCause,
+      Integer rating,
+      Instant resolvedAt,
+      int scorePercent) {}
+
+  public record SlaRiskView(
+      IncidentSummary incident,
+      String level,
+      int projectedPercentOfAllowance,
+      Instant projectedResolution,
+      Instant dueAt,
+      List<String> reasons) {}
+
+  public record ClusterView(
+      String pattern,
+      String key,
+      String summary,
+      Priority highestPriority,
+      int count,
+      Instant firstReportedAt,
+      Instant lastReportedAt,
+      Set<String> commonTerms,
+      List<IncidentSummary> incidents) {}
 }

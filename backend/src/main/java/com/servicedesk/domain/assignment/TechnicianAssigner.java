@@ -5,11 +5,13 @@ import com.servicedesk.domain.common.StrategyRegistry;
 import com.servicedesk.domain.exception.TechnicianUnavailableException;
 import com.servicedesk.domain.exception.WorkloadExceededException;
 import com.servicedesk.domain.incident.Incident;
+import com.servicedesk.domain.intelligence.IncidentHistory;
 import com.servicedesk.domain.user.Technician;
 import com.servicedesk.domain.user.User;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * Domain service that recommends and performs technician assignment using whichever {@link
@@ -28,12 +30,18 @@ public class TechnicianAssigner {
     this.strategies = Require.notNull(strategies, "Assignment strategies");
   }
 
-  /** Registry with all four built-in strategies, {@link SkillBasedStrategy} active. */
+  /** Registry with the four rule-based strategies, {@link SkillBasedStrategy} active. */
   public static StrategyRegistry<AssignmentStrategy> defaultStrategies() {
     return new StrategyRegistry<AssignmentStrategy>("Assignment strategy", new SkillBasedStrategy())
         .register(new LoadBasedStrategy())
         .register(new RoundRobinStrategy())
         .register(new PriorityBasedStrategy());
+  }
+
+  /** All built-in strategies including the history-aware {@link SmartAssignmentStrategy}. */
+  public static StrategyRegistry<AssignmentStrategy> defaultStrategies(
+      Supplier<IncidentHistory> history) {
+    return defaultStrategies().register(new SmartAssignmentStrategy(history));
   }
 
   /**

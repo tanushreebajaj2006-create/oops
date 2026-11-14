@@ -123,6 +123,14 @@ public class Incident {
 
   /** Sets (or changes) the category. NEW -> CLASSIFIED, or stays CLASSIFIED. */
   public void classify(Category newCategory, User actor, Instant at) {
+    classify(newCategory, actor, at, null);
+  }
+
+  /**
+   * Same as {@link #classify(Category, User, Instant)} but records why this category was chosen
+   * (e.g. the automatic categoriser's confidence and matched words) in the audit trail.
+   */
+  public void classify(Category newCategory, User actor, Instant at, String reason) {
     actor.requirePermission(Permission.CLASSIFY_INCIDENTS);
     IncidentState next = state.classify();
     Require.notNull(newCategory, "Category");
@@ -133,7 +141,9 @@ public class Incident {
     String previousCode = category == null ? null : category.code();
     this.category = newCategory;
     moveTo(next, at);
-    record(new IncidentClassified(header(actor, at, before), newCategory.code(), previousCode));
+    record(
+        new IncidentClassified(
+            header(actor, at, before), newCategory.code(), previousCode, reason));
   }
 
   /**
