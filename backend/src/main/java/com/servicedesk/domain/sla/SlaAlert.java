@@ -6,6 +6,9 @@ import com.servicedesk.domain.priority.Priority;
 import com.servicedesk.domain.user.UserId;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -56,11 +59,16 @@ public record SlaAlert(
 
   /** Short text suitable for an audit entry or notification. */
   public String describe() {
+    String due = DUE_FORMAT.format(dueAt);
     return switch (type) {
-      case WARNING -> "%s %s SLA at risk: due %s".formatted(incidentId, kind, dueAt);
+      case WARNING -> "%s %s SLA at risk: due %s".formatted(incidentId, kind, due);
       case VIOLATION ->
           "%s %s SLA violated: due %s, overdue by %d min"
-              .formatted(incidentId, kind, dueAt, overdueBy().toMinutes());
+              .formatted(incidentId, kind, due, overdueBy().toMinutes());
     };
   }
+
+  /** "14 Nov 16:49 UTC" - readable in the audit trail and notifications. */
+  private static final DateTimeFormatter DUE_FORMAT =
+      DateTimeFormatter.ofPattern("d MMM HH:mm 'UTC'", Locale.ENGLISH).withZone(ZoneOffset.UTC);
 }

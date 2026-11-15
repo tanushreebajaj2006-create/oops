@@ -46,3 +46,7 @@ copilot-instructions.md
 .cursorrules
 .windsurfrules
 .clinerules
+
+# Generated report pages (rebuild with: node docs/report/build-report.mjs)
+docs/report/report.html
+docs/report/report-static.html

@@ -179,9 +179,13 @@ export default function IncidentPage() {
             busy={busy}
             run={run}
           />
-          {isStaff(user.role) && d.allowedActions.length > 0 && (
-            <Triage incident={d} user={user} busy={busy} run={run} />
-          )}
+          {isStaff(user.role) &&
+            (d.allowedActions.includes("CLASSIFY") ||
+              d.allowedActions.includes("ASSIGN") ||
+              (d.priority !== null &&
+                !["RESOLVED", "VERIFIED", "CLOSED", "CANCELLED"].includes(d.status))) && (
+              <Triage incident={d} user={user} busy={busy} run={run} />
+            )}
           {isStaff(user.role) && d.status !== "CLOSED" && d.status !== "CANCELLED" && (
             <Suggestions incidentId={d.id} />
           )}
