@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -16,17 +17,24 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 /**
- * Spring Security configuration for ServiceDesk REST API.
+ * Spring Security configuration for the ServiceDesk REST API.
  *
- * <p>Enforces a stateless architecture: 1. CSRF protection is disabled because the API is strictly
- * stateless and token-based; no session cookies are maintained, eliminating CSRF vulnerabilities.
- * 2. Sessions are explicitly configured as {@link SessionCreationPolicy#STATELESS}. 3. Public
- * access is granted exclusively to /api/v1/health and /actuator/health. All other endpoints are
- * denied by default until authentication filters are wired. 4. CORS rules are driven by
- * configurable allowed origins.
+ * <ul>
+ *   <li><b>Stateless bearer tokens</b>: clients log in once and send {@code Authorization: Bearer
+ *       <jwt>} with every request. No server session, so CSRF protection is unnecessary and is
+ *       disabled.
+ *   <li><b>Public</b>: health checks, login and self-registration. <b>Everything else</b> needs a
+ *       valid token.
+ *   <li><b>Role-based authorisation</b> in three layers: URL rules here, {@code @PreAuthorize} on
+ *       controllers (method security), and the domain's own permission checks on every action - so
+ *       a missing annotation can never open a hole.
+ *   <li>Errors are returned as JSON ({@link JsonSecurityErrorHandler}).
+ *   <li>CORS origins come from configuration.
+ * </ul>
  */
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 public class SecurityConfig {
 
   private final List<String> allowedOrigins;
@@ -42,22 +50,38 @@ public class SecurityConfig {
   }
 
   @Bean
-  public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+  public SecurityFilterChain securityFilterChain(
+      HttpSecurity http, ActiveUserJwtConverter jwtConverter, JsonSecurityErrorHandler errors)
+      throws Exception {
     http
-        // CSRF is disabled intentionally: the backend operates as a stateless REST API
-        // using bearer tokens without session-based browser cookie storage.
+        // stateless REST API using bearer tokens, no cookies: CSRF does not apply
         .csrf(AbstractHttpConfigurer::disable)
         .cors(cors -> cors.configurationSource(corsConfigurationSource()))
         .sessionManagement(
             session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(
             auth ->
-                auth.requestMatchers(HttpMethod.GET, "/api/v1/health")
+                auth.requestMatchers(HttpMethod.OPTIONS, "/**")
                     .permitAll()
-                    .requestMatchers(HttpMethod.GET, "/actuator/health")
+                    .requestMatchers(HttpMethod.GET, "/api/v1/health", "/actuator/health")
                     .permitAll()
+                    .requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/register")
+                    .permitAll()
+                    .requestMatchers("/api/v1/admin/**")
+                    .hasRole("ADMINISTRATOR")
+                    .requestMatchers("/api/v1/reports/**")
+                    .hasAuthority("VIEW_REPORTS")
+                    .requestMatchers("/api/v1/**")
+                    .authenticated()
                     .anyRequest()
-                    .denyAll());
+                    .denyAll())
+        .oauth2ResourceServer(
+            oauth ->
+                oauth
+                    .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtConverter))
+                    .authenticationEntryPoint(errors)
+                    .accessDeniedHandler(errors))
+        .exceptionHandling(ex -> ex.authenticationEntryPoint(errors).accessDeniedHandler(errors));
 
     return http.build();
   }

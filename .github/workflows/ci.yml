@@ -36,6 +36,16 @@ jobs:
         working-directory: ./backend
         run: mvn -B verify
 
+      - name: Upload test and coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: |
+            backend/target/surefire-reports/
+            backend/target/site/jacoco/
+          retention-days: 14
+
   frontend:
     name: Frontend Quality Checks
     runs-on: ubuntu-latest
